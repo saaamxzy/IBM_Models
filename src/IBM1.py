@@ -1,0 +1,275 @@
+from collections import defaultdict
+import time
+
+
+class IBM1():
+	def __init__(self):
+		'''
+		probability p(f|e)
+		'''
+		self.t = dict()
+		self.q = defaultdict(lambda: defaultdict(float))
+		
+
+	def init_train(self):
+		self.en_vocab = set()
+		self.es_vocab = set()
+		self.counts = defaultdict(float)
+		self.counts_q1 = defaultdict(lambda: defaultdict(float))
+		self.counts_q2 = defaultdict(float)
+		self.n = defaultdict(float)
+
+		self.en_corpus = None
+		self.es_corpus = None
+
+	def init_test(self, param_file, en, es):
+		self.param_file = param_file
+
+		fen = open(en, 'r')
+		self.en_corpus = fen.readlines()
+		fen.close()
+
+		fes = open(es, 'r')
+		self.es_corpus = fes.readlines()
+		fes.close()
+
+	def read_params(self):
+		in_file = open(self.param_file, 'r')
+
+		for i,line in enumerate(in_file):
+			if i % 100000 == 0:
+				print (i)
+			params = line.strip().split('($$)')
+			f = params[0]
+			e = params[1]
+			value = eval(params[2])
+			if f not in self.t:
+				self.t[f] = dict()
+			self.t[f][e] = value
+
+		in_file.close()
+
+
+
+	def parallel_read(self, en, es):
+
+		print('reading corpus')
+
+		start = time.time()
+
+		fen = open(en, 'r')
+		en_corpus = fen.readlines()
+		fen.close()
+
+		fes = open(es, 'r')
+		es_corpus = fes.readlines()
+		fes.close()
+
+		assert len(en_corpus) == len(es_corpus), "parallel corpus length mismatch"
+
+		self.en_corpus = en_corpus
+		self.es_corpus = es_corpus
+		self.en_vocab.add('NULL')
+
+		for i in xrange(len(en_corpus)):
+			for word in en_corpus[i].split():
+				self.en_vocab.add(word)
+			for word in es_corpus[i].split():
+				self.es_vocab.add(word)
+
+			
+
+		print('Number of English vocabs: ' + str(len(self.en_vocab)))
+		print('Number of Spanish vocabs: ' + str(len(self.es_vocab)))
+
+		self.n_table = defaultdict(set)
+		for i in xrange(len(en_corpus)):
+			if i % 100 == 0:
+				print('current i: {}'.format(i))
+			en_sen = ['NULL'] + en_corpus[i].split()
+			es_sen = es_corpus[i].split()
+			for en in en_sen:
+				for es in es_sen:
+					self.n_table[en].add(es)
+
+		for each in self.n_table:
+			self.n[each] = len(self.n_table[each]) + 0.0
+
+		# print(self.en_vocab.difference(self.n_table))
+
+		# for c,word in enumerate(self.en_vocab):
+		# 	seen_words = set()
+		# 	if c % 100 == 0:
+		# 		print('Current c: {}'.format(c))
+		# 	for i in xrange(len(en_corpus)):
+		# 		en_sen = ['NULL'] + en_corpus[i].split()
+		# 		es_sen = es_corpus[i].split()
+		# 		if word in en_sen:
+		# 			# FIXME error here
+		# 			for each in es_sen:
+		# 				seen_words.add(each)
+		# 	# FIXME error here
+		# 	self.n[word] = len(seen_words)
+
+		#assert len(self.en_vocab) == len(self.n), 'vocabulary size and n dictionary mismatch'
+
+		time_elapsed = time.time() - start
+		print('time spent in read: ' + str(time_elapsed))
+		#print(self.n)
+
+	def get_q(j, i, l, m):
+		if j not in self.q:
+			self.q[j] = dict()
+
+		if (i,l,m) not in self.q[j]:
+			self.q[j][(i,l,m)] = 1.0 / (l + 1.0)
+			return self.q[j][(i,l,m)]
+		else:
+			return self.q[j][(i,l,m)]
+
+	def set_q(j, i, l, m, value):
+		if j not in self.q:
+			self.q[j] = dict()
+		self.q[j][(i,l,m)] = value
+
+
+	def initialize(self):
+		print('starting initialization.')
+		start = time.time()
+		for i in xrange(len(self.en_corpus)):
+			if i % 500 == 0:
+				print('initializing {}th sentence...'.format(i))
+			en_sen = ['NULL'] + self.en_corpus[i].split()
+			es_sen = self.es_corpus[i].split()
+
+			
+			for spanish_word in es_sen:
+				if spanish_word not in self.t:
+					self.t[spanish_word] = dict()
+				for english_word in en_sen:
+					if english_word not in self.t[spanish_word]:
+						self.t[spanish_word][english_word] = 1.0 / (self.get_n(english_word))
+
+		time_elapsed = time.time() - start
+		print('time spent in initialization: ' + str(time_elapsed))
+		print('initialization finished.')
+
+	def get_n(self, word):
+		return self.n[word]
+
+	def get_t(self, f, e):
+		if f in self.t:
+			if e in self.t[f]:
+				return self.t[f][e]
+			else:
+				print('method get_t: no f|e found in t table. f = {}, e = {}.'.format(f,e))
+				return 0
+		print('method get_t: no f|e found in t table. f = {}, e = {}.'.format(f,e))
+		return 0
+
+	def test_t(self):
+		while True:
+			try:
+				# es = input('please enter a spanish word: ').strip()
+				en = input('please enter an english word: ').strip()
+				if en == 'stopthiscrap':
+					return
+				if en in self.n:
+					print(self.get_n[en])
+
+			except:
+				print('no such word')
+				pass
+
+	def em(self):
+		'''
+		expectation-maximization algorithm
+		'''
+		self.counts = defaultdict(float)
+		self.counts_q1 = defaultdict(lambda: defaultdict(float))
+		self.counts_q2 = defaultdict(float)
+		print('length of corpus: ' + str(len(self.en_corpus)))
+		start = time.time()
+		for k in xrange(len(self.en_corpus)):
+			if k % 500 == 0:
+				print(str(len(self.en_corpus) - k) + ' sentences left')
+			es_sentence = self.es_corpus[k].split()
+			en_sentence = ['NULL'] + self.en_corpus[k].split()
+			mk = len(es_sentence)
+			lk = len(en_sentence)
+			for i in xrange(mk):
+				for j in xrange(lk):
+					ej = en_sentence[j]
+					fi = es_sentence[i]
+					delta = self.delta(ej, fi, es_sentence, en_sentence)
+
+					self.counts[(ej, fi)] += delta
+					self.counts[ej] += delta
+					self.counts_q1[j][(i,lk,mk)] += delta
+					self.counts_q2[(i,lk,mk)] += delta
+
+		for f in self.t.keys():
+			for e in self.t[f].keys():
+				#print('updating p({}|{}). Original value: {} '.format(f,e, self.t[f][e]))
+				self.t[f][e] = self.counts[(e, f)] / self.counts[e]
+				#print('new value: {}'.format(self.t[f][e]))
+		time_elapsed = time.time() - start
+		print('time spent in em: ' + str(time_elapsed))
+
+	def delta(self, ej, fi, es_sentence, en_sentence):
+
+		numerator = self.get_t(fi, ej) + 0.0
+		denominator = 0.0
+
+		for j in xrange(len(en_sentence)):
+			temp_ej = en_sentence[j]
+			denominator += self.get_t(fi, temp_ej)
+		return numerator / (0.0 + denominator)
+
+	
+
+	def get_alignment(self, es_sentence, en_sentence, out_file, index):
+		print(index)
+		for i in xrange(len(es_sentence)):
+			max_index = -1
+			max_t = 0
+			fi = es_sentence[i]
+			for j in xrange(len(en_sentence)):
+				ej = en_sentence[j]
+				temp_t = self.get_t(fi,ej)
+				if temp_t > max_t:
+					max_t = temp_t
+					max_index = j
+			if max_index != -1:
+				out_file.write('{} {} {}\n'.format(index+1, max_index, i+1))
+
+	def predict(self, es_fname, en_fname, out_fname):
+		es_file = open(es_fname, 'r')
+		en_file = open(en_fname, 'r')
+		out_file = open(out_fname, 'w')
+		es_sentences = es_file.readlines()
+		en_sentences = en_file.readlines()
+
+		assert len(es_sentences) == len(en_sentences), 'In predict: corpus length mismatch'
+		print('starting to predict')
+		for i in xrange(len(es_sentences)):
+			self.get_alignment(es_sentences[i].split(), ['NULL'] + en_sentences[i].split(), out_file, i)
+
+
+		es_file.close()
+		en_file.close()
+		out_file.close()
+
+	def save_params(self, out_fname):
+		out_f = open(out_fname, 'w')
+		for f in self.t.keys():
+			for e in self.t[f].keys():
+				out_f.write('{}($$){}($$){}\n'.format(f,e,self.t[f][e]))
+
+		out_f.close()
+
+	def save_n(self, out_fname):
+		out_f = open(out_fname, 'w')
+		for each in self.n:
+			out_f.write('{}(**){}\n'.format(each, self.n[each]))
+		out_f.close()
