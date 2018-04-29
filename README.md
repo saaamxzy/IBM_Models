@@ -1,5 +1,7 @@
 # IBM Model 1 and IBM Model 2
 
+Complete report can be found here: https://github.com/saaamxzy/IBM_Models/blob/master/ibm-models.pdf
+
 Use:
 
 $ python mt.py
